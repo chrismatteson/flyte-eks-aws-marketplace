@@ -59,18 +59,23 @@ so they stay equivalent.
 
 ## Deploying (before Marketplace publish)
 
-```bash
-# dev mode (no domain/auth; access via kubectl port-forward)
-STAGING_BUCKET=my-cfn-staging AWS_REGION=us-east-1 scripts/deploy.sh flyte-dev
+The product is a **single deployment**: VPC → EKS → Aurora/S3/IAM, then a
+CodeBuild-run [bootstrap](scripts/bootstrap.sh) installs Flyte through the
+resolver (helm today, add-on once published) with Cognito + ALB + ACM +
+Route 53 auth.
 
-# prod mode (Cognito + ALB + ACM + Route 53)
+```bash
 STAGING_BUCKET=my-cfn-staging AWS_REGION=us-east-1 scripts/deploy.sh flyte-prod \
   DomainName=example.com HostedZoneId=Z123 CognitoDomainPrefix=my-flyte
 ```
 
-`root.yaml` provisions VPC → EKS → Aurora/S3/IAM, then a CodeBuild-run
-[bootstrap](scripts/bootstrap.sh) installs Flyte through the resolver (helm
-today, add-on once published). See [MARKETPLACE.md](MARKETPLACE.md).
+**No-ingress test config (not a product tier):** omitting `DomainName` skips
+Cognito/ALB/ACM/Route 53 and leaves Flyte reachable only via `kubectl
+port-forward`. It stands up the *same* EKS + Aurora + S3 stack, so it is not a
+cheaper tier — it exists only to validate the infra + Flyte install in CI
+without needing a domain. Real deployments always set a domain.
+
+See [MARKETPLACE.md](MARKETPLACE.md).
 
 ## Status
 

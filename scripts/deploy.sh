@@ -29,11 +29,16 @@ aws cloudformation package \
 echo ">> deploying stack ${STACK}"
 OVERRIDES=()
 if [[ "$#" -gt 0 ]]; then OVERRIDES=(--parameter-overrides "$@"); fi
+# DISABLE_ROLLBACK=1 leaves a failed stack (and its live cluster) standing for
+# debugging instead of tearing everything down. Use during development only.
+ROLLBACK_FLAG=()
+if [[ "${DISABLE_ROLLBACK:-0}" == "1" ]]; then ROLLBACK_FLAG=(--disable-rollback); fi
 aws cloudformation deploy \
   --region "${AWS_REGION}" \
   --stack-name "${STACK}" \
   --template-file "${PACKAGED}" \
   --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+  "${ROLLBACK_FLAG[@]}" \
   "${OVERRIDES[@]}"
 
 echo ">> outputs:"

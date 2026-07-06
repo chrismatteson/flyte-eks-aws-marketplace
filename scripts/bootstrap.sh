@@ -81,16 +81,35 @@ install_lb_controller() {
       --service-account aws-load-balancer-controller --role-arn "${role_arn}"
   fi
 
-  log "helm install aws-load-balancer-controller"
+  # On a freshly-created cluster the EKS Pod Identity Agent DaemonSet may not be
+  # running yet; without it the controller can't obtain credentials. Wait for it
+  # before installing (this race is what stalled early bootstrap attempts).
+  log "waiting for eks-pod-identity-agent daemonset"
+  kubectl -n kube-system rollout status daemonset/eks-pod-identity-agent --timeout=5m || true
+
+  local vpc_id
+  vpc_id="$(aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" \
+    --query cluster.resourcesVpcConfig.vpcId --output text)"
+
+  log "helm install aws-load-balancer-controller (vpc ${vpc_id})"
   helm repo add eks https://aws.github.io/eks-charts >/dev/null 2>&1 || true
   helm repo update >/dev/null
+  # Install without --wait, then gate on an explicit rollout so a stall produces
+  # actionable diagnostics in the build log instead of a bare "context deadline".
   helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
     --namespace kube-system \
     --set clusterName="${CLUSTER_NAME}" \
     --set region="${AWS_REGION}" \
+    --set vpcId="${vpc_id}" \
     --set serviceAccount.create=true \
-    --set serviceAccount.name=aws-load-balancer-controller \
-    --wait --timeout 10m
+    --set serviceAccount.name=aws-load-balancer-controller
+  if ! kubectl -n kube-system rollout status deploy/aws-load-balancer-controller --timeout=5m; then
+    log "ALB controller did not become ready — diagnostics:"
+    kubectl -n kube-system describe deploy/aws-load-balancer-controller || true
+    kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-load-balancer-controller -o wide || true
+    kubectl -n kube-system logs -l app.kubernetes.io/name=aws-load-balancer-controller --tail=50 || true
+    return 1
+  fi
 }
 
 # --- 4. ACM certificate (prod only) ------------------------------------------

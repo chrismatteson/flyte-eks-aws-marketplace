@@ -77,6 +77,12 @@ Resources:
                   - iam:AttachRolePolicy
                   - iam:ListPolicyVersions
                 Resource: "*"
+              # CreatePodIdentityAssociation requires PassRole on the role being
+              # bound to the aws-load-balancer-controller service account.
+              - Sid: PassAlbControllerRole
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ClusterName}-alb-controller"
               - Sid: DnsAndCerts
                 Effect: Allow
                 Action:
@@ -145,11 +151,23 @@ Resources:
                 - git clone --branch "$REPO_REF" --depth 1 "$REPO_URL" /src
                 - cd /src && chmod +x scripts/*.sh
                 - |
-                  if scripts/bootstrap.sh; then RESULT=SUCCESS; REASON="bootstrap ok"; else RESULT=FAILURE; REASON="bootstrap failed - see CodeBuild logs"; fi
-                  curl -s -X PUT -H 'Content-Type:' \
-                    --data-binary "{\"Status\":\"$RESULT\",\"Reason\":\"$REASON\",\"UniqueId\":\"flyte-bootstrap\",\"Data\":\"done\"}" \
-                    "$SIGNAL_URL"
-                  test "$RESULT" = SUCCESS
+                  # Always signal the WaitCondition, even if bootstrap.sh aborts,
+                  # so the stack fails fast instead of hanging until timeout.
+                  signal() {
+                    local status="$1"
+                    for attempt in 1 2 3 4 5; do
+                      code=$(curl -sS -o /tmp/sig.out -w '%{http_code}' -X PUT -H 'Content-Type:' \
+                        --data-binary "{\"Status\":\"$status\",\"Reason\":\"bootstrap $status (see CodeBuild log)\",\"UniqueId\":\"flyte-bootstrap\",\"Data\":\"done\"}" \
+                        "$SIGNAL_URL") && [ "$code" = 200 ] && { echo "signaled $status (http $code)"; return 0; }
+                      echo "signal attempt $attempt got http '$code'; retrying"; sleep 5
+                    done
+                    echo "WARNING: failed to signal $status"; return 0
+                  }
+                  set +e
+                  scripts/bootstrap.sh
+                  CODE=$?
+                  if [ $CODE -eq 0 ]; then signal SUCCESS; else signal FAILURE; fi
+                  exit $CODE
 
   # Lambda custom resource that just starts the build on stack Create/Update.
   StartBuildRole:
