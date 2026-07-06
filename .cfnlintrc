@@ -1,0 +1,4 @@
+ignore_checks:
+  # Nested-stack TemplateURLs are local paths resolved by `aws cloudformation
+  # package` / scripts/deploy.sh — this is intentional.
+  - W3002

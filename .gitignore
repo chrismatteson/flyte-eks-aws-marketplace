@@ -1,0 +1,20 @@
+# Vendored chart artifacts (fetched by scripts/vendor-chart.sh, not committed)
+addon/chart/vendor/
+*.tgz
+
+# Rendered/generated files
+*.rendered.yaml
+build/
+dist/
+
+# Local state & secrets
+.env
+.env.local
+kubeconfig*
+*.pem
+*.tfstate*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

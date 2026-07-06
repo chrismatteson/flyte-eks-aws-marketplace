@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Flyte 2 on EKS — auth layer (prod mode only). Cognito user pool + hosted UI +
+  app client for OAuth2 login to the Flyte console and CLI (PKCE). The ACM
+  certificate and Route 53 records are issued by the bootstrap (flyte.yaml)
+  because ACM DNS validation cannot self-complete inside CloudFormation.
+
+Parameters:
+  ClusterName:
+    Type: String
+  DomainName:
+    Type: String
+    Description: Base domain, e.g. example.com. Flyte is served at flyte.<domain>.
+  CognitoDomainPrefix:
+    Type: String
+    Description: Globally-unique prefix for the Cognito hosted UI domain.
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${ClusterName}-flyte"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Ref CognitoDomainPrefix
+      UserPoolId: !Ref UserPool
+
+  UserPoolResourceServer:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      UserPoolId: !Ref UserPool
+      Identifier: https://flyte
+      Name: flyte
+      Scopes:
+        - ScopeName: all
+          ScopeDescription: Full Flyte access
+
+  # Browser + CLI client. authenticate-oidc on the ALB and Flyte's own OIDC
+  # validation both use this client.
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${ClusterName}-flyte"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: true
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - !Sub "https://flyte.${DomainName}/oauth2/idpresponse"
+        - !Sub "https://flyte.${DomainName}/callback"
+        - http://localhost:8080/callback
+      LogoutURLs:
+        - !Sub "https://flyte.${DomainName}/logout"
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub "${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
+  Issuer:
+    Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
