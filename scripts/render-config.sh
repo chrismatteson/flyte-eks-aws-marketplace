@@ -58,6 +58,11 @@ if [[ -n "${COGNITO_ISSUER:-}" && -n "${COGNITO_CLI_CLIENT_ID:-}" ]]; then
 cat <<YAML
       authMetadata:
         externalAuthServerBaseUrl: "${COGNITO_ISSUER}"
+        # Cognito serves OIDC discovery at /.well-known/openid-configuration but
+        # NOT the RFC 8414 /.well-known/oauth-authorization-server (Flyte's
+        # default), which 400s. Override the path so the proxy fetches the doc
+        # Cognito actually serves.
+        externalMetadataUrl: .well-known/openid-configuration
         flyteClient:
           clientId: "${COGNITO_CLI_CLIENT_ID}"
           redirectUri: http://localhost:53593/callback
