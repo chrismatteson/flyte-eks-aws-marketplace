@@ -59,4 +59,20 @@ cat <<YAML
     create: true
     host: "${INGRESS_HOST}"
 YAML
+  # ALB ingress annotations (prod mode). Emitted here so the config has exactly
+  # one `ingress:` key — helm's YAML->JSON rejects duplicate mapping keys.
+  if [[ -n "${CERT_ARN:-}" ]]; then
+cat <<YAML
+    commonAnnotations:
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/certificate-arn: "${CERT_ARN}"
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+      # flyte-binary v2 serves a gRPC/Connect endpoint on the http port; GET / is
+      # 404, so the ALB health check must target the dedicated /healthz (200 OK).
+      alb.ingress.kubernetes.io/healthcheck-path: /healthz
+      alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+      alb.ingress.kubernetes.io/success-codes: "200"
+YAML
+  fi
 fi

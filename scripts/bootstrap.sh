@@ -30,7 +30,9 @@ SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-flyte-backend}"
 PROD_MODE=false
 [[ -n "${DOMAIN_NAME:-}" ]] && PROD_MODE=true
 
-log() { echo ">> [bootstrap] $*"; }
+# Log to stderr so functions whose stdout is captured with $(...) (e.g.
+# issue_certificate) don't leak log lines into the captured value.
+log() { echo ">> [bootstrap] $*" >&2; }
 
 # --- 1. kubeconfig -----------------------------------------------------------
 log "configuring kubeconfig for ${CLUSTER_NAME}"
@@ -138,10 +140,14 @@ issue_certificate() {
 }
 
 # --- 5. render config + install Flyte via the resolver -----------------------
-CERT_ARN=""
+# CERT_ARN + INGRESS_HOST are consumed by render-config.sh, which emits the
+# single, complete ingress block (host + ALB annotations) — one source of truth,
+# one `ingress:` key.
+export CERT_ARN=""
 if [[ "${PROD_MODE}" == "true" ]]; then
   install_lb_controller
   CERT_ARN="$(issue_certificate)"
+  export CERT_ARN
   export INGRESS_HOST="flyte.${DOMAIN_NAME}"
 fi
 
@@ -149,22 +155,8 @@ log "rendering Flyte config"
 CONFIG_FILE="$(mktemp)"
 DB_HOST="${DB_HOST}" DB_PORT="${DB_PORT:-5432}" DB_NAME="${DB_NAME:-flyte}" \
 DB_USER="${DB_USER:-flyte}" S3_BUCKET="${S3_BUCKET}" AWS_REGION="${AWS_REGION}" \
-INGRESS_HOST="${INGRESS_HOST:-}" \
+INGRESS_HOST="${INGRESS_HOST:-}" CERT_ARN="${CERT_ARN}" \
   "${REPO_ROOT}/scripts/render-config.sh" > "${CONFIG_FILE}"
-
-# Prod: append ALB + Cognito ingress annotations and Flyte OIDC auth. These are
-# layered on top of the rendered base config (still one document, still fed to
-# both install paths identically).
-if [[ "${PROD_MODE}" == "true" ]]; then
-  cat >> "${CONFIG_FILE}" <<YAML
-  ingress:
-    commonAnnotations:
-      alb.ingress.kubernetes.io/scheme: internet-facing
-      alb.ingress.kubernetes.io/target-type: ip
-      alb.ingress.kubernetes.io/certificate-arn: ${CERT_ARN}
-      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-YAML
-fi
 
 log "installing Flyte via resolver"
 INSTALL_MODE="${INSTALL_MODE:-auto}" \
