@@ -27,19 +27,18 @@ aws cloudformation package \
   --output-template-file "${PACKAGED}"
 
 echo ">> deploying stack ${STACK}"
-OVERRIDES=()
-if [[ "$#" -gt 0 ]]; then OVERRIDES=(--parameter-overrides "$@"); fi
+# Build one args array and expand it once — avoids the bash 3.2 (macOS) quirk
+# where expanding a possibly-empty array under `set -u` is an "unbound variable".
+DEPLOY_ARGS=(cloudformation deploy
+  --region "${AWS_REGION}"
+  --stack-name "${STACK}"
+  --template-file "${PACKAGED}"
+  --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND)
 # DISABLE_ROLLBACK=1 leaves a failed stack (and its live cluster) standing for
 # debugging instead of tearing everything down. Use during development only.
-ROLLBACK_FLAG=()
-if [[ "${DISABLE_ROLLBACK:-0}" == "1" ]]; then ROLLBACK_FLAG=(--disable-rollback); fi
-aws cloudformation deploy \
-  --region "${AWS_REGION}" \
-  --stack-name "${STACK}" \
-  --template-file "${PACKAGED}" \
-  --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
-  "${ROLLBACK_FLAG[@]}" \
-  "${OVERRIDES[@]}"
+if [[ "${DISABLE_ROLLBACK:-0}" == "1" ]]; then DEPLOY_ARGS+=(--disable-rollback); fi
+if [[ "$#" -gt 0 ]]; then DEPLOY_ARGS+=(--parameter-overrides "$@"); fi
+aws "${DEPLOY_ARGS[@]}"
 
 echo ">> outputs:"
 aws cloudformation describe-stacks --region "${AWS_REGION}" --stack-name "${STACK}" \
