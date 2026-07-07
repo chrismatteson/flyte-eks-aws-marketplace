@@ -124,6 +124,8 @@ Resources:
         HostedZoneId: !Ref HostedZoneId
         CognitoIssuer: !If [IsProd, !GetAtt Auth.Outputs.Issuer, ""]
         CognitoClientId: !If [IsProd, !GetAtt Auth.Outputs.UserPoolClientId, ""]
+        CognitoUserPoolArn: !If [IsProd, !GetAtt Auth.Outputs.UserPoolArn, ""]
+        CognitoDomainPrefix: !If [IsProd, !GetAtt Auth.Outputs.CognitoDomainPrefix, ""]
 
 Outputs:
   ClusterName:

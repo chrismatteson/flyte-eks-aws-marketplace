@@ -50,12 +50,12 @@ Resources:
         - ScopeName: all
           ScopeDescription: Full Flyte access
 
-  # Browser + CLI client. authenticate-oidc on the ALB and Flyte's own OIDC
-  # validation both use this client.
+  # Confidential client for the browser flow: ALB `authenticate-cognito` uses it
+  # to run the console SSO login. Its callback is ALB's fixed /oauth2/idpresponse.
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:
-      ClientName: !Sub "${ClusterName}-flyte"
+      ClientName: !Sub "${ClusterName}-flyte-console"
       UserPoolId: !Ref UserPool
       GenerateSecret: true
       AllowedOAuthFlowsUserPoolClient: true
@@ -69,10 +69,33 @@ Resources:
         - COGNITO
       CallbackURLs:
         - !Sub "https://flyte.${DomainName}/oauth2/idpresponse"
-        - !Sub "https://flyte.${DomainName}/callback"
-        - http://localhost:8080/callback
       LogoutURLs:
         - !Sub "https://flyte.${DomainName}/logout"
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+
+  # Public (no-secret) PKCE client for the SDK/CLI. The API is protected by ALB
+  # JWT validation, which accepts a valid Cognito token from any client; this one
+  # lets `pyflyte` do an interactive PKCE login (localhost:53593 callback). CLI
+  # auto-discovery of the IdP (runs.authMetadata) lands in a later chart bump.
+  UserPoolClientCli:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${ClusterName}-flyte-cli"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:53593/callback
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
         - ALLOW_USER_SRP_AUTH
@@ -83,8 +106,15 @@ Outputs:
   UserPoolArn:
     Value: !GetAtt UserPool.Arn
   UserPoolClientId:
+    Description: Confidential client id used by ALB authenticate-cognito.
     Value: !Ref UserPoolClient
+  CliClientId:
+    Description: Public PKCE client id for the SDK/CLI.
+    Value: !Ref UserPoolClientCli
+  CognitoDomainPrefix:
+    Value: !Ref CognitoDomainPrefix
   CognitoDomain:
     Value: !Sub "${CognitoDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
   Issuer:
+    Description: OIDC issuer / JWT iss; JWKS is <issuer>/.well-known/jwks.json.
     Value: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"

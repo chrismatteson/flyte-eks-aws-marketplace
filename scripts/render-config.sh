@@ -21,6 +21,15 @@
 #   DB_USER         (default flyte)
 #   DB_PASSWORD_PATH(default /etc/db/secret/password)
 #   INGRESS_HOST    if set, enables ALB ingress at this host (prod mode)
+#   CERT_ARN        ACM cert for INGRESS_HOST (required with INGRESS_HOST)
+# Auth (all four enable the secure 3-ingress split; omit for an open ingress):
+#   COGNITO_USER_POOL_ARN   Cognito user pool ARN (browser SSO via ALB)
+#   COGNITO_CLIENT_ID       Cognito app client id (confidential, browser)
+#   COGNITO_DOMAIN_PREFIX   Cognito hosted-UI domain prefix
+#   COGNITO_ISSUER          https://cognito-idp.<region>.amazonaws.com/<poolId>
+#   HTTP_SERVICE_NAME       backend http service name for the Bearer condition
+#                           (default flyte-flyte-binary-http)
+#   ALB_GROUP_NAME          shared ALB IngressGroup name (default flyte)
 set -euo pipefail
 
 : "${DB_HOST:?DB_HOST is required}"
@@ -53,26 +62,55 @@ flyte-binary:
           authType: iam
 YAML
 
-if [[ -n "${INGRESS_HOST:-}" ]]; then
+if [[ -n "${INGRESS_HOST:-}" && -n "${CERT_ARN:-}" ]]; then
+  HTTP_SVC="${HTTP_SERVICE_NAME:-flyte-flyte-binary-http}"
+  GROUP_NAME="${ALB_GROUP_NAME:-flyte}"
+  # Emitted here (not appended by the caller) so the config has exactly one
+  # `ingress:` key — helm's YAML->JSON rejects duplicate mapping keys.
 cat <<YAML
   ingress:
     create: true
     host: "${INGRESS_HOST}"
-YAML
-  # ALB ingress annotations (prod mode). Emitted here so the config has exactly
-  # one `ingress:` key — helm's YAML->JSON rejects duplicate mapping keys.
-  if [[ -n "${CERT_ARN:-}" ]]; then
-cat <<YAML
     commonAnnotations:
       alb.ingress.kubernetes.io/scheme: internet-facing
       alb.ingress.kubernetes.io/target-type: ip
       alb.ingress.kubernetes.io/certificate-arn: "${CERT_ARN}"
       alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
-      # flyte-binary v2 serves a gRPC/Connect endpoint on the http port; GET / is
-      # 404, so the ALB health check must target the dedicated /healthz (200 OK).
+      # Same group.name on all three ingresses -> one shared ALB.
+      alb.ingress.kubernetes.io/group.name: "${GROUP_NAME}"
+      # v2's http port is gRPC/Connect (GET / -> 404); health-check the API
+      # backend on /healthz. The console TG gets /v2 via a per-service annotation
+      # applied by bootstrap.sh.
       alb.ingress.kubernetes.io/healthcheck-path: /healthz
       alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
       alb.ingress.kubernetes.io/success-codes: "200"
+YAML
+  if [[ -n "${COGNITO_USER_POOL_ARN:-}" && -n "${COGNITO_ISSUER:-}" ]]; then
+    # Secure mode: three ingresses merged onto ONE ALB via group.name, ordered by
+    # group.order (lower = evaluated first):
+    #   10 wellknown  — unauthenticated auth-discovery (clients need it pre-token)
+    #   20 api-jwt    — flyteidl2.* with `Authorization: Bearer` -> ALB validates
+    #                   the Cognito JWT (signature/iss/exp) and rejects invalid
+    #   30 http       — catch-all: console /v2 + browser cookie API, Cognito SSO
+    # Browser XHR carries the session cookie (no Bearer header) so it misses the
+    # api-jwt condition and falls through to the SSO-gated http ingress.
+cat <<YAML
+    httpAnnotations:
+      alb.ingress.kubernetes.io/group.order: "30"
+      alb.ingress.kubernetes.io/auth-type: cognito
+      alb.ingress.kubernetes.io/auth-scope: "openid email"
+      alb.ingress.kubernetes.io/auth-on-unauthenticated-request: authenticate
+      alb.ingress.kubernetes.io/auth-idp-cognito: '{"userPoolARN":"${COGNITO_USER_POOL_ARN}","userPoolClientID":"${COGNITO_CLIENT_ID}","userPoolDomain":"${COGNITO_DOMAIN_PREFIX}"}'
+    apiJwtIngress:
+      enabled: true
+      annotations:
+        alb.ingress.kubernetes.io/group.order: "20"
+        alb.ingress.kubernetes.io/jwt-validation: '{"jwksEndpoint":"${COGNITO_ISSUER}/.well-known/jwks.json","issuer":"${COGNITO_ISSUER}"}'
+        alb.ingress.kubernetes.io/conditions.${HTTP_SVC}: '[{"field":"http-header","httpHeaderConfig":{"httpHeaderName":"Authorization","values":["Bearer *"]}}]'
+    wellknownIngress:
+      enabled: true
+      annotations:
+        alb.ingress.kubernetes.io/group.order: "10"
 YAML
   fi
 fi
