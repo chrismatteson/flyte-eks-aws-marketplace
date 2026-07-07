@@ -16,6 +16,10 @@ Parameters:
   ServiceAccountName:
     Type: String
     Default: flyte-backend
+  TaskServiceAccountName:
+    Type: String
+    Default: flyte-task
+    Description: SA that task pods run under (executor.defaultK8sServiceAccount). Created by bootstrap.sh.
 
 Resources:
   FlyteS3Role:
@@ -58,6 +62,17 @@ Resources:
       ClusterName: !Ref ClusterName
       Namespace: !Ref Namespace
       ServiceAccount: !Ref ServiceAccountName
+      RoleArn: !GetAtt FlyteS3Role.Arn
+
+  # Task pods run as a dedicated SA (not the backend SA, which carries cluster
+  # RBAC). It shares the S3-only role — tasks need exactly the same bucket
+  # access and nothing more. The SA itself is created in-cluster by bootstrap.sh.
+  FlyteTaskPodIdentity:
+    Type: AWS::EKS::PodIdentityAssociation
+    Properties:
+      ClusterName: !Ref ClusterName
+      Namespace: !Ref Namespace
+      ServiceAccount: !Ref TaskServiceAccountName
       RoleArn: !GetAtt FlyteS3Role.Arn
 
 Outputs:

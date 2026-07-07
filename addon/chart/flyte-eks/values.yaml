@@ -48,10 +48,15 @@ flyte-binary:
         passwordPath: /etc/db/secret/password
         options: "sslmode=require"
 
-    # Extra backend config merged into the generated Flyte config. Left empty
-    # by default; auth (Cognito) block is injected per-deploy when a domain is
-    # configured.
-    inline: {}
+    # Extra backend config merged into the generated Flyte config.
+    inline:
+      executor:
+        # Task pods run under a dedicated, S3-only service account (created by
+        # bootstrap.sh and bound to the S3 role via EKS Pod Identity — see
+        # cloudformation/iam.yaml). Without this, tasks fall to the namespace
+        # `default` SA, which has no bucket credentials, and every task hangs
+        # ~144s on IMDS before failing. (Flyte v2 install docs, step 4.)
+        defaultK8sServiceAccount: flyte-task
 
   # ---- Service account bound to the S3 IAM role via PodIdentityAssociation --
   # The name is FIXED so the CloudFormation AWS::EKS::PodIdentityAssociation can

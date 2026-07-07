@@ -51,6 +51,14 @@ kubectl -n "${NAMESPACE}" create secret generic flyte-db-credentials \
   --dry-run=client -o yaml | kubectl apply -f -
 unset DB_PASSWORD
 
+# Task service account. Tasks run under this (executor.defaultK8sServiceAccount
+# in the chart values); it's bound to the S3 role via the CloudFormation
+# PodIdentityAssociation. The SA must exist before task pods schedule, and the
+# chart does not create it, so we do it here.
+log "creating task service account ${TASK_SERVICE_ACCOUNT:-flyte-task}"
+kubectl -n "${NAMESPACE}" create serviceaccount "${TASK_SERVICE_ACCOUNT:-flyte-task}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 # --- 3. AWS Load Balancer Controller (prod only) -----------------------------
 install_lb_controller() {
   local policy_arn role_name role_arn account
