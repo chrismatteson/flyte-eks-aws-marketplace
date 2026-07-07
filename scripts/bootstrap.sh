@@ -115,6 +115,10 @@ install_lb_controller() {
 }
 
 # --- 4. ACM certificate (prod only) ------------------------------------------
+# NOTE: this function's stdout is captured by the caller ($(issue_certificate)),
+# so ONLY the final `echo "${cert_arn}"` may write to stdout. Every aws call here
+# must send its own output to stderr or /dev/null, or it corrupts CERT_ARN (and
+# thus the rendered ingress YAML).
 issue_certificate() {
   local fqdn="flyte.${DOMAIN_NAME}" cert_arn
   cert_arn="$(aws acm list-certificates --region "${AWS_REGION}" \
@@ -126,16 +130,18 @@ issue_certificate() {
       --domain-name "${fqdn}" --validation-method DNS \
       --query CertificateArn --output text)"
     sleep 10
-    # Create the DNS validation record in Route 53.
+    # Create the DNS validation record in Route 53. Its ChangeInfo JSON must NOT
+    # leak to stdout (would be captured into CERT_ARN) -> redirect to stderr.
     read -r vname vvalue < <(aws acm describe-certificate --region "${AWS_REGION}" \
       --certificate-arn "${cert_arn}" \
       --query "Certificate.DomainValidationOptions[0].ResourceRecord.[Name,Value]" \
       --output text)
     aws route53 change-resource-record-sets --hosted-zone-id "${HOSTED_ZONE_ID}" \
-      --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${vname}\",\"Type\":\"CNAME\",\"TTL\":300,\"ResourceRecords\":[{\"Value\":\"${vvalue}\"}]}}]}"
+      --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${vname}\",\"Type\":\"CNAME\",\"TTL\":300,\"ResourceRecords\":[{\"Value\":\"${vvalue}\"}]}}]}" \
+      >&2
   fi
   log "waiting for cert validation"
-  aws acm wait certificate-validated --region "${AWS_REGION}" --certificate-arn "${cert_arn}"
+  aws acm wait certificate-validated --region "${AWS_REGION}" --certificate-arn "${cert_arn}" >&2
   echo "${cert_arn}"
 }
 
@@ -147,6 +153,13 @@ export CERT_ARN=""
 if [[ "${PROD_MODE}" == "true" ]]; then
   install_lb_controller
   CERT_ARN="$(issue_certificate)"
+  # Guard: CERT_ARN must be a single clean ARN. If any captured call leaked
+  # output into it, fail loudly here instead of as an opaque YAML parse error.
+  if [[ ! "${CERT_ARN}" =~ ^arn:aws:acm:[a-z0-9-]+:[0-9]+:certificate/[a-z0-9-]+$ ]]; then
+    echo "ERROR: issue_certificate returned a malformed CERT_ARN:" >&2
+    printf '%s\n' "${CERT_ARN}" >&2
+    exit 1
+  fi
   export CERT_ARN
   export INGRESS_HOST="flyte.${DOMAIN_NAME}"
 fi
