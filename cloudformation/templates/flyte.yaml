@@ -27,6 +27,7 @@ Parameters:
   CognitoClientId: { Type: String, Default: "" }
   CognitoUserPoolArn: { Type: String, Default: "" }
   CognitoDomainPrefix: { Type: String, Default: "" }
+  CognitoCliClientId: { Type: String, Default: "" }
   BootstrapTimeout:
     Type: String
     Default: "3600"
@@ -138,6 +139,7 @@ Resources:
           - { Name: COGNITO_CLIENT_ID, Value: !Ref CognitoClientId }
           - { Name: COGNITO_USER_POOL_ARN, Value: !Ref CognitoUserPoolArn }
           - { Name: COGNITO_DOMAIN_PREFIX, Value: !Ref CognitoDomainPrefix }
+          - { Name: COGNITO_CLI_CLIENT_ID, Value: !Ref CognitoCliClientId }
           - { Name: REPO_URL, Value: !Ref RepoUrl }
           - { Name: REPO_REF, Value: !Ref RepoRef }
           - { Name: SIGNAL_URL, Value: !Ref BootstrapWaitHandle }

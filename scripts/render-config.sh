@@ -27,6 +27,8 @@
 #   COGNITO_CLIENT_ID       Cognito app client id (confidential, browser)
 #   COGNITO_DOMAIN_PREFIX   Cognito hosted-UI domain prefix
 #   COGNITO_ISSUER          https://cognito-idp.<region>.amazonaws.com/<poolId>
+#   COGNITO_CLI_CLIENT_ID   public PKCE client id (enables SDK/CLI auth discovery
+#                           via runs.authMetadata)
 #   HTTP_SERVICE_NAME       backend http service name for the Bearer condition
 #                           (default flyte-flyte-binary-http)
 #   ALB_GROUP_NAME          shared ALB IngressGroup name (default flyte)
@@ -46,6 +48,27 @@ flyte-binary:
   flyte-core-components:
     runs:
       storagePrefix: "s3://${S3_BUCKET}"
+YAML
+
+# authMetadata advertises the external IdP so the SDK/CLI can discover where to
+# log in (served at /.well-known/oauth-authorization-server + AuthMetadataService,
+# which the wellknown ingress exposes unauthenticated). Uses the public PKCE
+# client. Passed through verbatim by the chart's flyte-core-components block.
+if [[ -n "${COGNITO_ISSUER:-}" && -n "${COGNITO_CLI_CLIENT_ID:-}" ]]; then
+cat <<YAML
+      authMetadata:
+        externalAuthServerBaseUrl: "${COGNITO_ISSUER}"
+        flyteClient:
+          clientId: "${COGNITO_CLI_CLIENT_ID}"
+          redirectUri: http://localhost:53593/callback
+          scopes:
+            - openid
+            - email
+            - profile
+YAML
+fi
+
+cat <<YAML
   configuration:
     database:
       postgres:

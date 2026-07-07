@@ -126,6 +126,7 @@ Resources:
         CognitoClientId: !If [IsProd, !GetAtt Auth.Outputs.UserPoolClientId, ""]
         CognitoUserPoolArn: !If [IsProd, !GetAtt Auth.Outputs.UserPoolArn, ""]
         CognitoDomainPrefix: !If [IsProd, !GetAtt Auth.Outputs.CognitoDomainPrefix, ""]
+        CognitoCliClientId: !If [IsProd, !GetAtt Auth.Outputs.CliClientId, ""]
 
 Outputs:
   ClusterName:
