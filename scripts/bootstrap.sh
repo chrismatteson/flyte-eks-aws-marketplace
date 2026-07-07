@@ -164,6 +164,17 @@ CLUSTER_NAME="${CLUSTER_NAME}" AWS_REGION="${AWS_REGION}" \
 CONFIG_FILE="${CONFIG_FILE}" POD_IDENTITY_ROLE_ARN="${FLYTE_S3_ROLE_ARN}" \
   "${REPO_ROOT}/scripts/resolve-install.sh"
 
+# The console SPA serves /v2, not /healthz, so its ALB target group needs its own
+# health-check path. The chart exposes no per-service annotation, and the
+# ingress-wide /healthz would fail the console; patch the console Service
+# directly (the AWS LBC reads health-check annotations per Service).
+if [[ "${PROD_MODE}" == "true" ]]; then
+  log "setting console ALB health-check path (/v2)"
+  kubectl -n "${NAMESPACE}" annotate service \
+    -l app.kubernetes.io/component=console \
+    alb.ingress.kubernetes.io/healthcheck-path=/v2 --overwrite || true
+fi
+
 # --- 6. Route 53 alias to the ingress ALB (prod only) ------------------------
 if [[ "${PROD_MODE}" == "true" ]]; then
   log "waiting for ingress ALB hostname"
