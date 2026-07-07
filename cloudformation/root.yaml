@@ -133,6 +133,9 @@ Outputs:
     Value: !GetAtt Eks.Outputs.ClusterName
   BucketName:
     Value: !GetAtt Data.Outputs.BucketName
+  EcrRepositoryUri:
+    Description: ECR repo for Flyte task images (push target for the SDK image builder).
+    Value: !GetAtt Data.Outputs.EcrRepositoryUri
   DBEndpoint:
     Value: !GetAtt Data.Outputs.DBEndpoint
   FlyteEndpoint:

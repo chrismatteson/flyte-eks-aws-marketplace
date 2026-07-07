@@ -57,6 +57,19 @@ Resources:
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
 
+  # ---- ECR repository for Flyte task images ----
+  # Developers push task images here; the nodes pull them (the node role has
+  # AmazonEC2ContainerRegistryReadOnly). EmptyOnDelete lets the stack tear down
+  # cleanly even with images present.
+  TaskImageRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ClusterName}-flyte-tasks"
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: MUTABLE
+
   # ---- DB password (generated, never surfaced in a parameter) ----
   DBSecret:
     Type: AWS::SecretsManager::Secret
@@ -134,3 +147,6 @@ Outputs:
     Value: !Ref DBName
   DBUsername:
     Value: !Ref DBUsername
+  EcrRepositoryUri:
+    Description: ECR repository for Flyte task images (nodes can pull; developers push).
+    Value: !GetAtt TaskImageRepository.RepositoryUri
