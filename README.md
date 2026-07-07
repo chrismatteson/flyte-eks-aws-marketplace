@@ -80,8 +80,30 @@ See [MARKETPLACE.md](MARKETPLACE.md).
 ## Status
 
 - [x] Phase 1 — add-on package: vendoring, values template, config schema, resolver (offline-validated)
-- [x] Phase 2 — CloudFormation full-stack (network/eks/data/iam/auth/flyte + bootstrap); cfn-lint + shellcheck clean, **not yet deployed live**
+- [x] Phase 2 — CloudFormation full-stack (network/eks/data/iam/auth/flyte + bootstrap); cfn-lint + shellcheck clean
+- [x] **Phase 2 validated live** on a real EKS deploy (us-east-2) — see below
+- [ ] Phase 2 gap — **Cognito auth is not yet wired** (endpoint deploys open). Needs the ALB `authenticate-oidc` listener action + Flyte OIDC config from the `auth.yaml` Cognito outputs.
+- [ ] Phase 2 confirmation — a single unattended one-click deploy (bugs were fixed incrementally against a persistent cluster; each step is proven, the full sequence in one CodeBuild run is not yet)
 - [ ] Phase 3 — BuildKite pipeline + Marketplace onboarding (Conformitron)
 - [ ] Phase 4 — docs + end-to-end smoke harness
+
+### Live validation results (2026-07-06, acct 371290552455 / us-east-2)
+
+Deployed the full stack and drove every layer by hand:
+
+| Check | Result |
+|---|---|
+| VPC / EKS / nodegroup / Aurora Serverless v2 / S3 / IAM | ✅ provisioned |
+| Flyte `flyte-binary v2.0.27` install on **external Aurora** | ✅ migrated (10 tables) |
+| Backend pods | ✅ `1/1`, 0 restarts |
+| **Pod Identity → S3** (assume `flyte-s3` role, PUT/GET/DELETE) | ✅ works, no static keys |
+| Flyte 2 Connect API via public **HTTPS** (`ProjectService/ListProjects`) | ✅ 200, returns `flytesnacks` |
+| Console via HTTPS (`/v2`) | ✅ 200 |
+| ALB + ACM + Route 53 | ✅ both target groups healthy |
+
+Five deploy bugs found and fixed during validation (all pushed): missing
+`iam:PassRole`; ALB-controller cold-start race; WaitCondition never signalling
+failure; `log()` polluting a captured `CERT_ARN` + duplicate `ingress:` key;
+console ALB health-check path (`/v2`, not `/healthz`).
 
 See [MARKETPLACE.md](MARKETPLACE.md) for the listing/publishing details.
